@@ -1,4 +1,4 @@
-/* MediaSwipe by Eric Winterstine v.01.30.2017
+/* MediaSwipe by Eric Winterstine v.02.03.2017
    ------------------------------------------- */
 body.ms-prevent-scroll { 
 	overflow:hidden !important; 
@@ -29,6 +29,7 @@ body.ms-prevent-scroll {
 	-webkit-user-drag: none;
 	-webkit-user-select: none;
 	-ms-user-select: none;
+	-webkit-backface-visibility: hidden;
 }
 #mediaswipe-container *:focus,
 #mediaswipe-container *:active {
