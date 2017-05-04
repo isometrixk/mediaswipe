@@ -1,6 +1,6 @@
 /* 	
 	MediaSwipe - Eric Winterstine
-	v.01.30.2017
+	v.05.04.2017
 */
 var MediaSwipe = (function() {
 	var screenWidth;
@@ -28,6 +28,8 @@ var MediaSwipe = (function() {
 	
 	var animator = {};
 	var pointerHandler = {};
+	
+	var oldResizeFunc = window.onresize;
 	
 	/*
 		init
@@ -1248,21 +1250,34 @@ var MediaSwipe = (function() {
 	
 		// Window resize event
 		window.onresize = function() {
-			screenWidth = window.innerWidth;
-			screenHeight = window.innerHeight;
-			
-			if ( isActive ) {
-			
-				var previousIndex = getNextIndex( -1 );
-				var nextIndex = getNextIndex( 1 );
-				var galleryIndexes = [ currentIndex, previousIndex, nextIndex ];
-			
-				for ( var i = 0; i < galleryIndexes.length; i++ ) {
-					fitMedia( gallery[galleryIndexes[i]] );
-					if ( gallery.length < 2 ) break;
-				}
-			}
+			doResize();
 		};
+	};
+	
+	/*
+		doResize
+		-------------------------------------------------------------------------
+		Resizes the viewport on window.onresize and calls any other onresize 
+		events that were already instantiated.
+		-------------------------------------------------------------------------
+	*/
+	var doResize = function() {
+		screenWidth = window.innerWidth;
+		screenHeight = window.innerHeight;
+		
+		if ( isActive ) {
+			var previousIndex = getNextIndex( -1 );
+			var nextIndex = getNextIndex( 1 );
+			var galleryIndexes = [ currentIndex, previousIndex, nextIndex ];
+		
+			for ( var i = 0; i < galleryIndexes.length; i++ ) {
+				fitMedia( gallery[galleryIndexes[i]] );
+				if ( gallery.length < 2 ) break;
+			}
+		}
+		if ( typeof oldResizeFunc === 'function' ) {
+			oldResizeFunc();
+		}
 	};
 	
 	/*
