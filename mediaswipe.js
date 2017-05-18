@@ -1,6 +1,6 @@
 /* 	
 	MediaSwipe - Eric Winterstine
-	v.05.04.2017
+	v.05.18.2017
 */
 var MediaSwipe = (function() {
 	var screenWidth;
@@ -900,9 +900,9 @@ var MediaSwipe = (function() {
 				mediaObject.width = mediaObject.width || 1200;
 				mediaObject.height = mediaObject.height || 675;
 				// Extract video id
-				var regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#\&\?]*).*/;
-				var match = mediaObject.src.match(regExp);
-				if (match&&match[7].length==11) {
+				var regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|\?v=)([^#\&\?]*).*/;
+        			var match = mediaObject.src.match(regExp);
+        			if (match && match[2].length == 11) {
 					mediaObject.src = match[7];
 				} else {
 					return false;
