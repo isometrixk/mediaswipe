@@ -1045,7 +1045,7 @@ var MediaSwipe = (function() {
 	var initiateListeners = function() {
 		// Open MediaSwipe Event
 		document.addEventListener('click', function(e) {
-			if ( isActive === false ) {
+			if ( (isActive === false && typeof e.button !== 'undefined' && e.button < 2) || (isActive === false && typeof e.button == 'undefined') ) {
 				var domItem = e.target;
 				while( domItem.parentNode && !containsMediaClass(domItem,e) ) {
 					domItem = domItem.parentNode;
