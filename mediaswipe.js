@@ -1,6 +1,6 @@
 /* 	
 	MediaSwipe - Eric Winterstine
-	v.05.18.2017
+	v.11.14.2017
 */
 var MediaSwipe = (function() {
 	var screenWidth;
@@ -509,18 +509,29 @@ var MediaSwipe = (function() {
 			},
 			events: {
 				'onReady' : function(e) {
-					var vId = e.target.getVideoData().video_id;
-					for ( var i = 0; i < gallery.length; i++ ) {
-						if ( vId === gallery[i].src ) {
-							gallery[i].domObject = document.getElementById('youtube'+gallery[i].index);
-							fitMedia( gallery[i] );
-							addClass( gallery[i].domSlide, 'loaded' );
-							// autoplay the video if it's the only item in the gallery
-							if ( gallery.length === 1 ) {
-								addClass($mediaSwipe,'disable-touchpad');
-								gallery[i].youTubeObject.playVideo();
+					var regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|\?v=)([^#\&\?]*).*/;
+	        		var match = e.target.getVideoUrl().match(regExp);
+	        		var vId;
+	        		if (match && match[2].length == 11) {
+						vId = match[2];
+						for ( var i = 0; i < gallery.length; i++ ) {
+							if ( vId === gallery[i].src ) {
+								gallery[i].domObject = document.getElementById('youtube'+gallery[i].index);
+								fitMedia( gallery[i] );
+								addClass( gallery[i].domSlide, 'loaded' );
+								// autoplay the video if it's the only item in the gallery
+								if ( gallery.length === 1 && screenWidth > 1100 ) {
+									addClass($mediaSwipe,'disable-touchpad');
+									gallery[i].youTubeObject.playVideo();
+									// Push Tracking
+									if ( typeof dataLayer !== 'undefined' && typeof dataLayer.push !== 'undefined' && typeof gallery[currentIndex].eventName !== 'undefined' && typeof gallery[currentIndex].eventName !== '' ) {
+										dataLayer.push({'event':gallery[currentIndex].eventName});
+									}
+								}
 							}
 						}
+					} else {
+						console.warn("MediaSwipe: Could not parse YouTube video URL correctly.");
 					}
 				}
 			}
