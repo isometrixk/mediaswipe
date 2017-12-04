@@ -1,6 +1,6 @@
 /* 	
 	MediaSwipe - Eric Winterstine
-	v.11.14.2017
+	v.12.04.2017
 */
 var MediaSwipe = (function() {
 	var screenWidth;
@@ -1084,7 +1084,7 @@ var MediaSwipe = (function() {
 		// Mobile finger touch start event
 		$mediaSwipeTouchpad.addEventListener('touchstart', function(e) {
 			e = e ? e : window.event;
-			if ( isActive ) {
+			if ( isActive && gallery[ currentIndex ].type !== 'html' && gallery[ currentIndex ].type !== 'iframe' ) {
 				e.preventDefault();
 			}
 			if ( e.targetTouches.length === 1 ) {
@@ -1099,7 +1099,7 @@ var MediaSwipe = (function() {
 		// Mobile panning/zooming/swiping
 		$mediaSwipeTouchpad.addEventListener('touchmove', function(e) {
 			e = e ? e : window.event;
-			if ( isActive ) {
+			if ( isActive && gallery[ currentIndex ].type !== 'html' && gallery[ currentIndex ].type !== 'iframe' ) {
 				e.preventDefault();
 			}
 			if ( e.targetTouches.length === 1 && !pointerHandler.zooming ) {
