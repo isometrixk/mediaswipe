@@ -1,8 +1,27 @@
-/* 	
-	MediaSwipe - Eric Winterstine
-	v.12.04.2017
+/*    
+	MediaSwipe
+
+    Copyright (C) 2018  Eric J. Winterstine
+
+    The JavaScript code in this page is free software: you can
+    redistribute it and/or modify it under the terms of the GNU
+    General Public License (GNU GPL) as published by the Free Software
+    Foundation, either version 3 of the License, or (at your option)
+    any later version.  The code is distributed WITHOUT ANY WARRANTY;
+    without even the implied warranty of MERCHANTABILITY or FITNESS
+    FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+    As additional permission under GNU GPL version 3 section 7, you
+    may distribute non-source (e.g., minimized or compacted) forms of
+    that code without the copy of the GNU GPL normally required by
+    section 4, provided you include this license notice and a URL
+    through which recipients can access the Corresponding Source.   
 */
-var MediaSwipe = (function() {
+if ( typeof mediaswipe == "undefined" ) var mediaswipe = {};
+
+mediaswipe = (function() {
+	var ready = false;
+
 	var screenWidth;
 	var screenHeight;
 	
@@ -11,8 +30,12 @@ var MediaSwipe = (function() {
 	var isActive;
 	var currentIndex;
 	var isFullScreen;
+	var disableHash;
+	var initialProperties;
 	
 	var slidesAwaitingAPI;
+	var sitePlans;
+	var loadingSitePlan;
 	
 	var $mediaSwipe;
 	var $mediaSwipeTouchpad;
@@ -25,12 +48,14 @@ var MediaSwipe = (function() {
 	var $futureSlide;
 	var $slideIndexes;
 	var $slideCaption;
+	var $closeButton;
 	
 	var animator = {};
 	var pointerHandler = {};
-	
+
 	var oldResizeFunc = window.onresize;
-	
+
+
 	/*
 		init
 		-------------------------------------------------------------------------
@@ -46,6 +71,9 @@ var MediaSwipe = (function() {
 		
 		isActive = false;
 		slidesAwaitingAPI = [];
+		sitePlans = [];
+		loadedCommunityIds = [];
+		loadingSitePlan = false;
 		
 		$mediaSwipe = document.getElementById('mediaswipe-container');
 		// If MediaSwipe dom isn't present, create it
@@ -64,6 +92,7 @@ var MediaSwipe = (function() {
 		$futureSlide = false;
 		$slideIndexes = document.getElementById('mediaswipe-gallery-indexes');
 		$slideCaption = document.getElementById('mediaswipe-slide-caption');
+		$closeButton = document.getElementById('mediaswipe-close-button');
 		
 		animator = {
 			currentTime : 0,
@@ -89,10 +118,16 @@ var MediaSwipe = (function() {
 		
 		initiateListeners();
 		render();
+
+		ready = true;
 		
+		// Check if there was a manual call to open mediaswipe
+		if ( typeof initialProperties !== 'undefined' ) {
+			launchWithProperties(initialProperties);
+		}
 		// Check if there is a hashtag to popup a gallery on page load
-		if ( window.location && window.location.hash && window.location.hash.length > 0 ) {
-			var filter = /\#view\=([\w\d])+(\,[\w\d])*/;
+		else if ( window.location && window.location.hash && window.location.hash.length > 0 ) {
+			var filter = /\#view\=([\w\d])*(\,[\w\d])*/;
 			if ( filter.test(window.location.hash) ) {
 				var galleryIndex = 0;
 				var galleryRel = "";
@@ -105,7 +140,7 @@ var MediaSwipe = (function() {
 				var els = document.getElementsByClassName('js-mediaSwipe');
 				var foundCount = -1;
 				for ( var i = 0; i < els.length; i++ ) {
-					if ( typeof els[i].getAttribute('data-rel') !== 'undefined' && els[i].getAttribute('data-rel') === galleryRel ) {
+					if ( (typeof els[i].getAttribute('data-rel') !== 'undefined' && els[i].getAttribute('data-rel') === galleryRel) || galleryRel === "" ) {
 						foundCount++;
 						if ( foundCount === galleryIndex ) {
 							gatherMedia( els[i] );
@@ -119,15 +154,23 @@ var MediaSwipe = (function() {
 				}
 			}
 		}
+		
 	};
 	
 	/*
 		launch
 		-------------------------------------------------------------------------
 		Sets the gallery to be visible and hides/shows the gallery arrows.
+
+		@param disableURLHash - sets the gallery to update the hash in the url bar
 		-------------------------------------------------------------------------
 	*/
-	var launch = function() {
+	var launch = function( disableURLHash ) {
+		// Prevent site scrolling
+		addClass(document.getElementsByTagName('body')[0],'ms-prevent-scroll');
+
+		disableHash = ( typeof disableURLHash !== 'undefined' ) ? disableURLHash : false;
+
 		isActive = true;
 		addClass($mediaSwipe,'on');
 		$futureSlide = false;
@@ -137,10 +180,163 @@ var MediaSwipe = (function() {
 			removeClass($mediaSwipe,'mediaswipe-allow-arrows');
 		}
 		setSlides( currentIndex );
-		
-		// Prevent site scrolling
-		addClass(document.getElementsByTagName('body')[0],'ms-prevent-scroll');
+
+		// Do an animation if the first item was set...
+		if ( gallery[currentIndex].animate !== false ) {
+			if ( gallery[currentIndex].animate === 'fade-down' ) {
+				animator.animations.push({
+					domObject : $currentSlide,
+					time : 400,
+					yStart : -100,
+					yEnd : 0,
+					opacityStart : 0,
+					opacityEnd : 1,
+					callback : function() {
+						clearAnimations();
+					}
+				});
+			} else if ( gallery[currentIndex].animate === 'fade-right' ) { 
+				animator.animations.push({
+					domObject : $currentSlide,
+					time : 400,
+					xStart : -100,
+					xEnd : 0,
+					opacityStart : 0,
+					opacityEnd : 1,
+					callback : function() {
+						clearAnimations();
+					}
+				});
+			} else if ( gallery[currentIndex].animate === 'fade-left' ) { 
+				animator.animations.push({
+					domObject : $currentSlide,
+					time : 400,
+					xStart : 100,
+					xEnd : 0,
+					opacityStart : 0,
+					opacityEnd : 1,
+					callback : function() {
+						clearAnimations();
+					}
+				});
+			} else {
+				animator.animations.push({
+					domObject : $currentSlide,
+					time : 400,
+					yStart : 100,
+					yEnd : 0,
+					opacityStart : 0,
+					opacityEnd : 1,
+					callback : function() {
+						clearAnimations();
+					}
+				});
+			}
+		}
 	};
+
+	/*
+		launchWithProperties
+		-------------------------------------------------------------------------
+		A way to manually launch MediaSwipe with custom properties and items
+
+		@param properties - A MediaSwipe object that contains a gallery array
+		and other properties.
+		-------------------------------------------------------------------------
+	*/
+	var launchWithProperties = function(properties) {
+		var launchGallery = ( typeof properties.gallery !== 'undefined' ) ? properties.gallery : [properties];
+		var mediaObject;
+		gallery = new Array();
+		currentIndex = ( typeof properties.currentIndex !== 'undefined' ) ? properties.currentIndex : 0;
+
+		mediaObject = getMediaProperties
+
+		for ( var i = 0; i < launchGallery.length; i++ ) {
+			mediaObject = getMediaProperties( launchGallery[i] );
+			if ( typeof launchGallery[i].category === 'undefined' ) {
+				mediaObject.category = '723554093';
+			}
+			if ( typeof properties.onClose === 'function' ) {
+				mediaObject.onClose = properties.onClose;
+			}
+			if ( typeof launchGallery[i].onClose === 'function' ) {
+				mediaObject.onClose = launchGallery[i].onClose;
+			}
+			if ( typeof launchGallery[i].onReady === 'function' ) {
+				mediaObject.onReady = launchGallery[i].onReady;
+			}
+			mediaObject.index = i;
+			mediaObject.displayIndex = (i+1);
+			gallery.push(mediaObject);
+		}	
+
+		// There is a bug with only 2 gallery items. So just make it 4 items instead!
+		if ( gallery.length === 2 ) {
+			var newItem = {}, newItem2 = {};
+			for ( var p in gallery[0] ) {
+				newItem[p] = gallery[0][p];
+			}
+			newItem.displayIndex = 1;
+			newItem.index = 2;
+			gallery.push(newItem);
+			for ( var p in gallery[1] ) {
+				newItem2[p] = gallery[1][p];
+			}
+			newItem2.displayIndex = 2;
+			newItem2.index = 3;
+			gallery.push(newItem2);
+			galleryLength = 2;
+		} else {
+			galleryLength = gallery.length;
+		}
+
+		launch(true);
+		
+		if ( typeof properties.onReady === 'function' && gallery.length > 1 ) {
+			properties.onReady();
+		}
+	};
+
+
+
+	/*
+		open
+		-------------------------------------------------------------------------
+		A global function to launch MediaSwipe manually with custom properties.
+
+		@param properties - A MediaSwipe object that contains a gallery array
+		and other properties.
+		-------------------------------------------------------------------------
+	*/
+	var open = function(properties) {
+		if ( ready === false ) {
+			// When ready, init will check to see if initialProperties are set
+			initialProperties = properties;
+		} else {
+			launchWithProperties(properties);
+		}
+	};
+
+
+	/*
+		open
+		-------------------------------------------------------------------------
+		A global function to close MediaSwipe manually.
+		-------------------------------------------------------------------------
+	*/
+	var close = function() {
+		if ( isActive ) {
+			// If we're in full screen mode...
+			if ( hasClass($mediaSwipe,'ms-full-screen') ) {
+				closeFullScreen();
+			}
+
+			closeGallery();
+		}		
+	};
+
+
 	
 	/*
 		closeGallery
@@ -154,7 +350,19 @@ var MediaSwipe = (function() {
 			closeFullScreen();
 			return false;
 		}
-		
+
+		// If we've added a custom class...
+		if ( gallery[currentIndex].addClass !== false ) {
+			removeClass($mediaSwipe, gallery[currentIndex].addClass);
+		}
+
+		// If the gallery item has an onClose event...
+		if ( typeof gallery[currentIndex].onClose === 'function' ) {
+			gallery[currentIndex].onClose();
+		}
+
+		history.replaceState(undefined, undefined, "#");
+
 		isActive = false;
 		clearAnimations();
 		removeClass($mediaSwipe,'on');
@@ -192,7 +400,7 @@ var MediaSwipe = (function() {
 		closeFullScreen
 		-------------------------------------------------------------------------
 		Requests the window to exit full screen mode
-		-------------------------------------------------------------------------
+		------------------------------------------------------------------------
 	*/
 	var closeFullScreen = function() {
 		isFullScreen = false;
@@ -220,13 +428,44 @@ var MediaSwipe = (function() {
 		-------------------------------------------------------------------------
 	*/
 	var setSlides = function( index ) {
+
+		if ( gallery[currentIndex].addClass !== false ) {
+			removeClass($mediaSwipe, gallery[currentIndex].addClass);			
+		}
+		if ( gallery[getNextIndex( -1 )].addClass !== false ) {
+			removeClass($mediaSwipe, gallery[getNextIndex( -1 )].addClass);			
+		}
+		if ( gallery[getNextIndex( 1 )].addClass !== false ) {
+			removeClass($mediaSwipe, gallery[getNextIndex( 1 )].addClass);			
+		}
+
+		removeClass($mediaSwipe,'ms-zoom-in');
+		removeClass($mediaSwipe,'ms-zoom-out');
+		removeClass($mediaSwipe,'ms-grabbing');
+		removeClass($mediaSwipe,'ms-grab');
+
 		gallery[currentIndex].active = false;
 		gallery[getNextIndex( -1 )].active = false;
 		gallery[getNextIndex( 1 )].active = false;
 		currentIndex = index;
-		
+
+		// Update the URL bar
+		var rel = (gallery[currentIndex].category === false) ? "" : gallery[currentIndex].category;
+		if ( disableHash == false ) {
+			if ( gallery.length > 1 ) {
+				history.replaceState(undefined, undefined, "#view=" + rel + "," + (gallery[currentIndex].displayIndex-1));
+			} else {
+				history.replaceState(undefined, undefined, "#view=" + rel);
+			}
+		}
+
 		// Hide/Show Captions
 		$slideIndexes.innerHTML = ( galleryLength > 1 ) ? gallery[currentIndex].displayIndex + " / " + galleryLength : "";
+		if ( galleryLength > 1 ) {
+			addClass($slideIndexes,'on');
+		} else {
+			removeClass($slideIndexes,'on');
+		}
 		if ( gallery[currentIndex].caption !== false && gallery[currentIndex].caption !== "" ) {
 			$slideCaption.innerHTML = gallery[currentIndex].caption;
 			addClass($slideCaption,'on');
@@ -236,12 +475,7 @@ var MediaSwipe = (function() {
 		
 		var previousIndex = getNextIndex( -1 );
 		var nextIndex = getNextIndex( 1 );
-		
-		removeClass($mediaSwipe,'ms-zoom-in');
-		removeClass($mediaSwipe,'ms-zoom-out');
-		removeClass($mediaSwipe,'ms-grabbing');
-		removeClass($mediaSwipe,'ms-grab');
-		
+
 		// Enable/disable the touchpad
 		if ( gallery[ currentIndex ].disableTouchpad && !hasClass($mediaSwipe,'disable-touchpad') && gallery[ currentIndex ].type !== 'youtube' ) {
 			addClass($mediaSwipe,'disable-touchpad');
@@ -249,6 +483,11 @@ var MediaSwipe = (function() {
 			removeClass($mediaSwipe,'disable-touchpad');
 		} else if ( gallery[ currentIndex ].type === 'youtube' ) {
 			removeClass($mediaSwipe,'disable-touchpad');
+		}
+
+		// Add class to mediaswipe if its defined
+		if ( gallery[ currentIndex ].addClass !== false ) {
+			addClass($mediaSwipe, gallery[ currentIndex ].addClass);
 		}
 		
 		// Stop a YouTube video play of previous/next items
@@ -264,7 +503,10 @@ var MediaSwipe = (function() {
 			resetSlides(); 
 			gallery[ currentIndex ].domSlide = $currentSlide;
 			gallery[ currentIndex ].domContainer = $currentSlideContainer;
-			insertMedia( gallery[ currentIndex ] );
+			
+			if ( gallery[ currentIndex ].type !== 'siteplan' && gallery[ currentIndex ].type !== 'interactive') {
+				insertMedia( gallery[ currentIndex ] );
+			}
 			
 			if ( gallery.length > 1 ) {
 				gallery[ previousIndex ].domContainer = $previousSlideContainer;
@@ -288,7 +530,7 @@ var MediaSwipe = (function() {
 				gallery[ previousIndex ].domContainer = $previousSlideContainer;
 				gallery[ previousIndex ].domSlide = $previousSlide;
 				resetSlide(gallery[ previousIndex ]);
-				insertMedia( gallery[ previousIndex ] );
+				insertMedia( gallery[ previousIndex ] );				
 				fitMedia( gallery[ nextIndex ] );
 			} else if ( hasClass($futureSlide, 'mediaswipe-next-slide') ) {
 				var $futureContainer = $nextSlideContainer;
@@ -303,7 +545,7 @@ var MediaSwipe = (function() {
 				gallery[ nextIndex ].domContainer = $nextSlideContainer;
 				gallery[ nextIndex ].domSlide = $nextSlide;
 				resetSlide(gallery[ nextIndex ]);
-				insertMedia( gallery[ nextIndex ] );
+				insertMedia( gallery[ nextIndex ] );				
 				fitMedia( gallery[ previousIndex ] );
 			}
 			
@@ -320,6 +562,14 @@ var MediaSwipe = (function() {
 			removeClass( $nextSlide, 'mediaswipe-previous-slide' );
 			removeClass( $nextSlide, 'mediaswipe-current-slide' );
 			addClass( $nextSlide, 'mediaswipe-next-slide' );
+		}
+		
+		if ( gallery[ currentIndex ].type === 'siteplan' || gallery[ currentIndex ].type === 'interactive' ) {
+			insertMedia( gallery[ currentIndex ] );
+		}
+
+		if ( typeof gallery[ currentIndex ].onReady === 'function' ) {
+			gallery[ currentIndex ].onReady(gallery[ currentIndex ]);
 		}
 	};
 	
@@ -403,7 +653,23 @@ var MediaSwipe = (function() {
 		-------------------------------------------------------------------------
 	*/
 	var insertMedia = function( galleryItem ) {
-		if ( galleryItem.type === 'image' ) {
+		if ( galleryItem.type === 'html' ) {
+			if ( galleryItem.html === '' ) {
+				galleryItem.html = galleryItem.src.innerHTML;
+			}
+			var htmls = galleryItem.html;
+			var div = document.createElement('div');
+			div.innerHTML = '<div class="mediaswipe-html-inner-container">'+htmls+'</div>';
+			div.width = galleryItem.width;
+			div.height = galleryItem.height;
+			div.style.overflow = 'hidden';
+			div.style.overflowY = 'scroll';
+			div.className = "mediaswipe-html-container";
+			galleryItem.domContainer.appendChild(div);
+			galleryItem.domObject = div;
+			fitMedia(galleryItem);
+			addClass(galleryItem.domSlide,'loaded');
+		} else if ( galleryItem.type === 'image' ) {
 			var imageObj = new Image();
 			imageObj.ignoreOnLoad = false;
 			galleryItem.active = true;
@@ -459,7 +725,7 @@ var MediaSwipe = (function() {
 				if ( typeof window.mediaSwipeCalledYTAPI === 'undefined' ) {
 					window.mediaSwipeCalledYTAPI = true;
 					var tag = document.createElement('script');
-					tag.src = "https://www.youtube.com/iframe_api";
+					tag.src = "//www.youtube.com/iframe_api";
 					var firstScriptTag = document.getElementsByTagName('script')[0];
 					firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 				}
@@ -474,14 +740,16 @@ var MediaSwipe = (function() {
 			iframe.src = galleryItem.src;
 			iframe.width = galleryItem.width;
 			iframe.height = galleryItem.height;
+			iframe.setAttribute('allowfullscreen','allowfullscreen');
 			iframe.style.overflow = 'hidden';
 			iframe.style.overflowY = 'scroll';
 			galleryItem.domContainer.appendChild(iframe);
-			galleryItem.domObject = iframe;
+			galleryItem.domObject = iframe;			
 			fitMedia(galleryItem);
 			addClass(galleryItem.domSlide,'loaded');
 		}
 	};
+	
 	
 	/*
 		insertYouTubeObject
@@ -491,8 +759,8 @@ var MediaSwipe = (function() {
 	*/
 	var insertYouTubeObject = function( galleryItem ) {
 		var previousIndex = getNextIndex( -1 );
-		var nextIndex = getNextIndex( 1 ); 
-		
+		var nextIndex = getNextIndex( 1 ); 			
+
 		// Make sure the YouTube video is still part of our 3 active slides
 		// (could happen if the user is swiping fast!)
 		if ( galleryItem.index !== currentIndex && galleryItem.index !== previousIndex && galleryItem.index !== nextIndex ) {
@@ -505,18 +773,28 @@ var MediaSwipe = (function() {
 			videoId: galleryItem.src,
 			playerVars: {
 				modestbranding: true,
-				rel: false
+				rel: 0
 			},
 			events: {
-				'onReady' : function(e) {
+				'onReady' : function(e) {					
 					var regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|\?v=)([^#\&\?]*).*/;
 	        		var match = e.target.getVideoUrl().match(regExp);
 	        		var vId;
+	        		var previousIndex = getNextIndex( -1 );
+					var nextIndex = getNextIndex( 1 ); 	
+
 	        		if (match && match[2].length == 11) {
 						vId = match[2];
 						for ( var i = 0; i < gallery.length; i++ ) {
-							if ( vId === gallery[i].src ) {
+							if ( vId === gallery[i].src && (gallery[i].index == currentIndex || gallery[i].index == previousIndex || gallery[i].index == nextIndex) ) {
+
 								gallery[i].domObject = document.getElementById('youtube'+gallery[i].index);
+
+								if ( gallery[i].domObject == null ) {
+									insertMedia(gallery[i]);
+									gallery[i].domObject = document.getElementById('youtube'+gallery[i].index);
+								}
+
 								fitMedia( gallery[i] );
 								addClass( gallery[i].domSlide, 'loaded' );
 								// autoplay the video if it's the only item in the gallery
@@ -577,18 +855,37 @@ var MediaSwipe = (function() {
 			galleryItem.yPos = bounds.yPos;
 			galleryItem.domObject.style.width = Math.ceil(galleryItem.width+1) + "px";
 			galleryItem.domObject.style.height = Math.ceil(galleryItem.height+1) + "px";
+			
 		} else if ( galleryItem.type === 'iframe' || galleryItem.type === 'youtube' ) {
 			galleryItem.scale = 1;
 			galleryItem.xPos = bounds.virtualXPos;
 			galleryItem.yPos = bounds.virtualYPos;
 			galleryItem.domObject.width = Math.ceil(bounds.virtualWidth+1) + "px";
 			galleryItem.domObject.height = Math.ceil(bounds.virtualHeight+1) + "px";
+		} else if ( galleryItem.type === 'html' ) {
+			galleryItem.scale = 1;
+			galleryItem.xPos = bounds.virtualXPos;
+			galleryItem.yPos = bounds.virtualYPos;
+			galleryItem.domObject.style.width = Math.ceil(bounds.virtualWidth+1) + "px";
+			galleryItem.domObject.style.height = Math.ceil(bounds.virtualHeight+1) + "px";
 		}
 		
-		galleryItem.domObject.style.position = 'absolute';
-		galleryItem.domObject.style.left = Math.floor(galleryItem.xPos) + "px";
-		galleryItem.domObject.style.top = Math.floor(galleryItem.yPos) + "px";	
+		if ( typeof galleryItem.domObject.style != "undefined" ) {
+			galleryItem.domObject.style.position = 'absolute';
+			galleryItem.domObject.style.left = Math.floor(galleryItem.xPos) + "px";
+			galleryItem.domObject.style.top = Math.floor(galleryItem.yPos) + "px";		
+		}
+
 		transformMedia( galleryItem );
+
+		// Move the 'close' button if 'closeInFrame' is set
+		if ( galleryItem.closeInFrame !== false ) {
+			$closeButton.style.right = 'auto';
+			$closeButton.style.left = Math.ceil(bounds.virtualXPos + bounds.virtualWidth - $closeButton.offsetWidth) + "px";
+			$closeButton.style.top = Math.ceil(bounds.virtualYPos) + "px";
+		} else {
+			$closeButton.removeAttribute("style");
+		}
 	};
 	
 	/*
@@ -601,16 +898,39 @@ var MediaSwipe = (function() {
 		-------------------------------------------------------------------------
 	*/
 	var getFitDimensions = function( galleryItem ) {
-		var canvasOffset = ( screenWidth > 799 ) ? 80 : 10; // padding around viewport
+		var canvasOffset = 0; // padding around viewport
 		var mediaParent = galleryItem.domContainer;
 		var mediaWidth = galleryItem.width || galleryItem.videoWidth || galleryItem.offsetWidth;
 		var mediaHeight = galleryItem.height || galleryItem.videoHeight || galleryItem.offsetHeight;
 		var mediaRatio = mediaWidth / mediaHeight;
 		var containerWidth = mediaParent.offsetWidth - canvasOffset*2;
-		var containerHeight = mediaParent.offsetHeight - canvasOffset*2;
+		var containerHeight = screenHeight - canvasOffset*2;
 		var containerRatio = containerWidth / containerHeight;
 		var newMediaWidth,newMediaHeight,newXPosition,newYPosition,viewportX,viewportY;
 		
+
+		if ( galleryItem.type === 'html' ) {
+			newMediaHeight = galleryItem.domObject.children[0].offsetHeight;
+			if ( newMediaHeight > containerHeight - 100 ) {
+				newMediaHeight = screenHeight - 100;
+			}
+			mediaHeight = newMediaHeight;
+			newMediaWidth = mediaWidth;
+			if ( newMediaWidth > containerWidth - 50 ) {
+				newMediaWidth = containerWidth - 50;
+			}
+			mediaWidth = newMediaWidth;
+		}
+
+
+		if ( galleryItem.fullscreen === true && galleryItem.type !== 'image' ) {
+			newMediaWidth = galleryItem.domContainer.width || galleryItem.domContainer.videoWidth || galleryItem.domContainer.offsetWidth;
+			mediaWidth = galleryItem.domContainer.width || galleryItem.domContainer.videoWidth || galleryItem.domContainer.offsetWidth;
+			newMediaHeight = galleryItem.domContainer.height || galleryItem.domContainer.videoHeight || galleryItem.domContainer.offsetHeight;
+			mediaHeight = galleryItem.domContainer.height || galleryItem.domContainer.videoHeight || galleryItem.domContainer.offsetHeight;
+		}
+
+
 		// Contain & resize the media if it is too large
 		if ( mediaWidth > containerWidth || mediaHeight > containerHeight ) {
 			if ( mediaRatio > containerRatio ) {
@@ -655,9 +975,9 @@ var MediaSwipe = (function() {
 		Transforms a galleryItem's DOM element by scale & position
 		-------------------------------------------------------------------------
 	*/
-	var transformMedia = function( galleryItem, scale, xPos, yPos ) {
+	var transformMedia = function( galleryItem, scale, xPos, yPos, opacity ) {
 		var transformProperties;
-		
+
 		// Set Scale Bounds
 		if ( typeof galleryItem.minScale !== 'undefined' ) {
 			if ( scale !== false && scale < galleryItem.minScale ) {
@@ -703,19 +1023,29 @@ var MediaSwipe = (function() {
 		}
 		
 		// If we are animating an image from the gallery or another dom object
-		if ( typeof galleryItem.domObject !== 'undefined' ) {
+		if ( typeof galleryItem.domObject !== 'undefined' && typeof galleryItem.domObject.style !== 'undefined' ) {
 			galleryItem.domObject.style.webkitTransform = transformProperties;
 			galleryItem.domObject.style.MozTransform = transformProperties;
 			galleryItem.domObject.style.msTransform = transformProperties;
 			galleryItem.domObject.style.OTransform = transformProperties;
 			galleryItem.domObject.style.transform = transformProperties;
-		} else {
+		} else if ( typeof galleryItem.style !== 'undefined' ) {
 			galleryItem.style.webkitTransform = transformProperties;
 			galleryItem.style.MozTransform = transformProperties;
 			galleryItem.style.msTransform = transformProperties;
 			galleryItem.style.OTransform = transformProperties;
 			galleryItem.style.transform = transformProperties;
 		}
+
+		if ( typeof opacity !== 'undefined' ) {
+			if ( typeof galleryItem.domObject !== 'undefined' ) {
+				galleryItem.domObject.style.opacity = opacity;
+			} else {
+				galleryItem.style.opacity = opacity;
+			}
+		}
+
+		
 	};
 	
 	/*
@@ -733,6 +1063,7 @@ var MediaSwipe = (function() {
 		var domMediaProperties = getMediaProperties( domItem );
 		var documentItems = document.getElementsByClassName('js-mediaSwipe');
 		var documentItems2 = document.getElementsByClassName('js-mediaswipe');
+
 		var newDomItem;
 		gallery = new Array();
 		var tempGallery = new Array();
@@ -769,7 +1100,7 @@ var MediaSwipe = (function() {
 		}
 		// There is a bug with only 2 gallery items. Since there are 3 active slides, it creates
 		// a mess. So - we just make the gallery 4 items instead!
-		if ( gallery.length === 2 ) {
+		if ( gallery.length === 2 ) {			
 			var newIndex = gallery.length;
 			var newDisplayIndex = 1;
 			if ( documentItems.length ) {
@@ -782,6 +1113,7 @@ var MediaSwipe = (function() {
 						newIndex++;
 						newDisplayIndex++;
 					}
+					if ( gallery.length == 4 ) break;
 				}
 			}
 			if ( documentItems2.length ) {
@@ -794,8 +1126,10 @@ var MediaSwipe = (function() {
 						newIndex++;
 						newDisplayIndex++;
 					}
+					if ( gallery.length == 4 ) break;
 				}
 			}
+			
 			
 			galleryLength = 2;
 		} else {
@@ -847,7 +1181,7 @@ var MediaSwipe = (function() {
 		and parsing a single domItem.
 		
 		@param domItem - the dom element with class js-mediaSwipe that will be
-		added to the gallery array
+		added to the gallery array OR an object
 		-------------------------------------------------------------------------
 	*/
 	var getMediaProperties = function( domItem ) {
@@ -862,12 +1196,14 @@ var MediaSwipe = (function() {
 			category : false,
 			width : 0, 
 			height : 0, 
+			fullscreen : false,
 			xPos : 0, 
 			yPos : 0, 
 			scale : 1,
 			minScale : 1,
 			isZoomed : false, 
-			disableTouchpad : false,
+			disableTouchpad : false,			
+			disableSwipe : false,
 			virtualHeight : 0, 
 			virtualWidth : 0, 
 			virtualXPos : 0, 
@@ -878,58 +1214,113 @@ var MediaSwipe = (function() {
 			lastVirtualYOffset : 0,
 			domSlide : false, 
 			domContainer : false, 
-			domObject : false
+			domObject : false,
+			html : 	'',
+			animate : false,				// first gallery item will animate in
+			closeInFrame : false,			// close button will be in top-left corner of the frame
+			addClass : false				// adds a custom class name to #mediaswipe-container on 'this' frame
 		};
-		for ( var i = 0; i < domItem.attributes.length; i++ ) {
-			attrName = domItem.attributes[i].nodeName;
-			attrValue = domItem.getAttribute( attrName );
-			if ( attrName === "data-largeimg" || attrName === "data-img" || attrName === "data-image" || attrName === "href" ) {
-				mediaObject.src = attrValue;
-			}
-			else if ( attrName === "data-caption" || attrName === "data-title" || attrName === "data-description" ) {
-				mediaObject.caption = attrValue;
-			}
-			else if ( attrName === "data-rel" || attrName === "data-category" || attrName === "data-type" ) {
-				mediaObject.category = attrValue;
-			}
-			else if ( (attrName === "data-w" || attrName === "data-width") && !isNaN(attrValue) ) {
-				mediaObject.width = parseInt(attrValue);
-			}
-			else if ( (attrName === "data-h" || attrName === "data-height") && !isNaN(attrValue) ) {
-				mediaObject.height = parseInt(attrValue);
+
+		// If this is a dom item with attributes...
+		if ( typeof domItem.attributes !== 'undefined' && domItem.attributes.length ) {
+			for ( var i = 0; i < domItem.attributes.length; i++ ) {
+				attrName = domItem.attributes[i].nodeName;
+				attrValue = domItem.getAttribute( attrName );
+				if ( (attrName === "data-fullscreen" || attrName === "data-fullScreen") && attrValue === "true" ) {
+					mediaObject.fullscreen = true;
+				}
+				else if ( attrName === "data-largeimg" || attrName === "data-img" || attrName === "data-image" || attrName === "href" || attrName === "data-largeImg" || attrName === "data-largeImage" ) {
+					mediaObject.src = attrValue;
+				}
+				else if ( attrName === "title" || attrName === "data-caption" || attrName === "data-title" || attrName === "data-description" ) {
+					mediaObject.caption = attrValue;
+				}
+				else if ( attrName === "data-rel" || attrName === "data-category" || attrName === "data-type" ) {
+					mediaObject.category = attrValue;
+				}
+				else if ( (attrName === "data-w" || attrName === "data-width") && !isNaN(attrValue) ) {
+					mediaObject.width = parseInt(attrValue);
+				}
+				else if ( (attrName === "data-h" || attrName === "data-height") && !isNaN(attrValue) ) {
+					mediaObject.height = parseInt(attrValue);
+				} else if ( attrName === "data-addClass" || attrName === "data-addclass" ) {
+					mediaObject.addClass = attrValue;
+				} else if ( attrName === "data-animate" ) {
+					mediaObject.animate = attrValue;
+				} else if ( attrName === "data-closeinframe" || attrName === "data-closeinframe" ) {
+					mediaObject.closeInFrame = true;
+				} else if ( attrName === "data-html" ) {
+					mediaObject.type = "html";
+					mediaObject.src = document.getElementById( attrValue );
+				}
 			}
 		}
-		if ( mediaObject.src !== false && mediaObject.src !== "" ) {
-			if (/\.(jpg|png|gif)$/.test(mediaObject.src.toLowerCase()) && typeof mediaObject.mmid === 'undefined' ) { 
+		// If this is an OBJECT 
+		else {
+			for ( var p in domItem ) {
+				if ( typeof mediaObject[p] !== 'undefined' ) {
+					mediaObject[p] = domItem[p];
+				}
+			}	
+		}
+
+		if ( mediaObject.src !== false && mediaObject.src !== "" && mediaObject.type !== 'html' ) {
+			if (/\.(jpg|png|gif)/.test(mediaObject.src.toLowerCase()) && typeof mediaObject.mmid === 'undefined' ) { 
 				mediaObject.type = "image";
-			} else if (/\.(mp4)$/.test(mediaObject.src.toLowerCase())) { 
+			} else if (/\.(mp4)/.test(mediaObject.src.toLowerCase())) { 
 				mediaObject.type = "mp4";
-			} else if ( mediaObject.src.indexOf('youtube.com') > -1 || mediaObject.src.indexOf('/embed/') > -1 ) { 
-				mediaObject.type = "youtube";
+			} else if ( mediaObject.src.indexOf('vimeo.com') > -1 ) {
+				mediaObject.type = "iframe";
+				mediaObject.disableTouchpad = true;
+				mediaObject.width = mediaObject.width || 1200;
+				mediaObject.height = mediaObject.height || 675;				
+			} else if ( mediaObject.src.indexOf('youtube.com') > -1 || (mediaObject.src.indexOf('/embed/') > -1 && mediaObject.src.indexOf('yout') > -1) ) { 
+				mediaObject.type = "youtube";				
 				mediaObject.disableTouchpad = true;
 				// Set special width and height for YouTube videos:
 				mediaObject.width = mediaObject.width || 1200;
 				mediaObject.height = mediaObject.height || 675;
 				// Extract video id
 				var regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|\?v=)([^#\&\?]*).*/;
-        			var match = mediaObject.src.match(regExp);
-        			if (match && match[2].length == 11) {
-					mediaObject.src = match[7];
+        		var match = mediaObject.src.match(regExp);
+        		if (match && match[2].length == 11) {
+					mediaObject.src = match[2];
 				} else {
 					return false;
 				}
 			} else {
 				mediaObject.type = "iframe";
 				mediaObject.disableTouchpad = true;
-				mediaObject.width = mediaObject.width || 920;
-				mediaObject.height = mediaObject.height || 614;
+				mediaObject.disableSwipe = true;
+				mediaObject.width = mediaObject.width || 3000;
+				mediaObject.height = mediaObject.height || 2008;
 			}
 			return mediaObject;
+		} else if ( mediaObject.type === "html" ) {
+				mediaObject.disableTouchpad = true;
+				mediaObject.disableSwipe = true;
+				mediaObject.width = mediaObject.width || 920;
+				mediaObject.height = mediaObject.height || 614;
+				return mediaObject;
 		} else {
 			// Invalid media object of some sort or a file path was not given
 			console.warn("MediaSwipe: Could not open file because 'href' or 'data-image' attributes were not specified on the js-mediaSwipe element.");
 			return false;
 		}
+	};
+	
+	/*
+		normalizeURL
+		-------------------------------------------------------------------------
+		Normalizes a URL string.
+		-------------------------------------------------------------------------
+	*/
+	var normalizeURL = function(url, domainToo){
+		url = url.replace(/^http[s]*:/i,'');
+		if (!/tollbrothers.com/i.test(url) && !/www\.youtube\.com/i.test(url)){
+			url = '//www.tollbrothers.com' + url;
+		}
+		return url;
 	};
 	
 	/*
@@ -1082,66 +1473,102 @@ var MediaSwipe = (function() {
 		});
 		
 		// Mobile finger touch start event
-		$mediaSwipeTouchpad.addEventListener('touchstart', function(e) {
+		$mediaSwipeTouchpad.addEventListener('touchstart', function(e) {			
 			e = e ? e : window.event;
-			if ( isActive && gallery[ currentIndex ].type !== 'html' && gallery[ currentIndex ].type !== 'iframe' ) {
+
+			if ( isActive && gallery[ currentIndex ].type === 'image' ) {
 				e.preventDefault();
 			}
-			if ( e.targetTouches.length === 1 ) {
-				doMouseDown(e.targetTouches[0]);
-			} else {
-				pointerHandler.zooming = false;
-				doMouseDown(e.targetTouches[0]);
-				getEvent(e.targetTouches[1], pointerHandler.secondStart);
+
+			var withinBounds = withinImageBounds(e);
+			if ( (isActive && gallery[ currentIndex ].disableSwipe === false && withinBounds) || (isActive && !withinBounds) ) {
+				if ( e.targetTouches.length === 1 ) {
+					doMouseDown(e.targetTouches[0]);
+				} else {
+					pointerHandler.zooming = false;
+					doMouseDown(e.targetTouches[0]);
+					getEvent(e.targetTouches[1], pointerHandler.secondStart);
+				}
 			}
 		});
 		
 		// Mobile panning/zooming/swiping
 		$mediaSwipeTouchpad.addEventListener('touchmove', function(e) {
 			e = e ? e : window.event;
-			if ( isActive && gallery[ currentIndex ].type !== 'html' && gallery[ currentIndex ].type !== 'iframe' ) {
+			if ( isActive && gallery[ currentIndex ].type === 'image' ) {
 				e.preventDefault();
 			}
-			if ( e.targetTouches.length === 1 && !pointerHandler.zooming ) {
-				doMouseMove(e.targetTouches[0]);
-			} else if ( e.targetTouches.length >= 1 && gallery[ currentIndex ].disableTouchpad === false ) {
-				if ( pointerHandler.zooming !== true ) {
-					getEvent(e.targetTouches[0],pointerHandler.start);
-					pointerHandler.zooming = true;
-					gallery[ currentIndex ].startZoomWidth = gallery[ currentIndex ].virtualWidth;
-					gallery[ currentIndex ].isZoomed = true;
-					gallery[currentIndex].lastVirtualXOffset = gallery[currentIndex].virtualXOffset;
-					gallery[currentIndex].lastVirtualYOffset = gallery[currentIndex].virtualYOffset;
+
+			var withinBounds = withinImageBounds(e);
+			if ( (isActive && gallery[ currentIndex ].disableSwipe === false && withinBounds) || (isActive && !withinBounds) ) {			
+				if ( e.targetTouches.length === 1 && !pointerHandler.zooming ) {
+					doMouseMove(e.targetTouches[0]);
+				} else if ( e.targetTouches.length >= 1 && gallery[ currentIndex ].disableTouchpad === false ) {
+					if ( pointerHandler.zooming !== true ) {
+						getEvent(e.targetTouches[0],pointerHandler.start);
+						pointerHandler.zooming = true;
+						gallery[ currentIndex ].startZoomWidth = gallery[ currentIndex ].virtualWidth;
+						gallery[ currentIndex ].isZoomed = true;
+						gallery[currentIndex].lastVirtualXOffset = gallery[currentIndex].virtualXOffset;
+						gallery[currentIndex].lastVirtualYOffset = gallery[currentIndex].virtualYOffset;
+					}
+					// Multitouch drag & zoom
+					getEvent(e.targetTouches[0], pointerHandler.end);
+					getEvent(e.targetTouches[1], pointerHandler.secondEnd);
+					var startDistance = Math.sqrt(Math.pow(pointerHandler.secondStart.y-pointerHandler.start.y,2)+Math.pow(pointerHandler.secondStart.x-pointerHandler.start.x,2));
+					var endDistance = Math.sqrt(Math.pow(pointerHandler.secondEnd.y-pointerHandler.end.y,2)+Math.pow(pointerHandler.secondEnd.x-pointerHandler.end.x,2));
+					var deltaX = (pointerHandler.secondEnd.x-pointerHandler.secondStart.x) + (pointerHandler.end.x-pointerHandler.start.x) / 2;
+					var deltaY = (pointerHandler.secondEnd.y-pointerHandler.secondEnd.y) + (pointerHandler.end.y-pointerHandler.start.y) / 2;
+					var newRatio = ((endDistance - startDistance) * 4 + gallery[ currentIndex ].startZoomWidth) / gallery[ currentIndex ].width;
+					transformMedia( gallery[ currentIndex ], newRatio, deltaX, deltaY );
 				}
-				// Multitouch drag & zoom
-				getEvent(e.targetTouches[0], pointerHandler.end);
-				getEvent(e.targetTouches[1], pointerHandler.secondEnd);
-				var startDistance = Math.sqrt(Math.pow(pointerHandler.secondStart.y-pointerHandler.start.y,2)+Math.pow(pointerHandler.secondStart.x-pointerHandler.start.x,2));
-				var endDistance = Math.sqrt(Math.pow(pointerHandler.secondEnd.y-pointerHandler.end.y,2)+Math.pow(pointerHandler.secondEnd.x-pointerHandler.end.x,2));
-				var deltaX = (pointerHandler.secondEnd.x-pointerHandler.secondStart.x) + (pointerHandler.end.x-pointerHandler.start.x) / 2;
-				var deltaY = (pointerHandler.secondEnd.y-pointerHandler.secondEnd.y) + (pointerHandler.end.y-pointerHandler.start.y) / 2;
-				var newRatio = ((endDistance - startDistance) * 4 + gallery[ currentIndex ].startZoomWidth) / gallery[ currentIndex ].width;
-				transformMedia( gallery[ currentIndex ], newRatio, deltaX, deltaY );
 			}
 		});
 		
 		// Mobile finger up event
 		$mediaSwipeTouchpad.addEventListener('touchend', function(e) {
 			e = e ? e : window.event;
-			if ( isActive ) {
+			if ( isActive && gallery[ currentIndex ].type === 'image' ) {
 				e.preventDefault();
 			}
-			if ( e.targetTouches.length === 0 && pointerHandler.zooming === false ) {
-				doMouseUp(e.changedTouches[0]);
-			} else if ( e.targetTouches.length === 0 && pointerHandler.zooming ) {
-				pointerHandler.zooming = false;
-			} else if ( e.targetTouches.length === 1 && pointerHandler.zooming ) {
-				doMouseDown(e.targetTouches[0]);
-				gallery[currentIndex].lastVirtualXOffset = gallery[currentIndex].virtualXOffset;
-				gallery[currentIndex].lastVirtualYOffset = gallery[currentIndex].virtualYOffset;
+
+			var withinBounds = withinImageBounds(e);
+			if ( (isActive && gallery[ currentIndex ].disableSwipe === false && withinBounds) || (isActive && !withinBounds) ) {
+				if ( e.targetTouches.length === 0 && pointerHandler.zooming === false ) {
+					doMouseUp(e.changedTouches[0]);
+				} else if ( e.targetTouches.length === 0 && pointerHandler.zooming ) {
+					pointerHandler.zooming = false;
+
+					// If we zoomed all the way out and let go, center the image back to view
+					if ( gallery[currentIndex].scale == gallery[currentIndex].minScale ) {
+						var fitBounds = getFitDimensions( gallery[ currentIndex ] );
+						gallery[currentIndex].lastVirtualXOffset = 0;
+						gallery[currentIndex].lastVirtualYOffset = 0;
+						animator.animations.push({
+							domObject : gallery[ currentIndex ],
+							time : 100,
+							scaleStart : gallery[ currentIndex ].scale,
+							scaleEnd : fitBounds.scale,
+							xStart : gallery[ currentIndex ].virtualXOffset,
+							xEnd : 0,
+							yStart : gallery[ currentIndex ].virtualYOffset,
+							yEnd : 0,
+							callback : function() {
+								clearAnimations();
+								removeClass($mediaSwipe,'ms-zoom-out');
+								addClass($mediaSwipe,'ms-zoom-in');
+								gallery[currentIndex].isZoomed = false;
+							}
+						});
+					}
+
+				} else if ( e.targetTouches.length === 1 && pointerHandler.zooming ) {
+					doMouseDown(e.targetTouches[0]);
+					gallery[currentIndex].lastVirtualXOffset = gallery[currentIndex].virtualXOffset;
+					gallery[currentIndex].lastVirtualYOffset = gallery[currentIndex].virtualYOffset;
+				}
 			}
 		});
-		
 		
 		// Touchpad Mouse Events for Desktop
 		$mediaSwipeTouchpad.addEventListener('mousedown', function(e) {
@@ -1196,6 +1623,7 @@ var MediaSwipe = (function() {
 			var imageDesc = gallery[ currentIndex ].caption || "";
 			window.open('http://www.facebook.com/sharer.php?u='+encodeURIComponent(imageSrc)+'&t='+encodeURIComponent(imageDesc),'sharer','toolbar=0,status=0,width=626,height=436');
 			removeClass(document.getElementById('mediaswipe-share-nav'),'on');
+
 			return false;
 		});
 		
@@ -1207,6 +1635,7 @@ var MediaSwipe = (function() {
 			var imageDesc = gallery[ currentIndex ].caption || "";
 			window.open('https://twitter.com/intent/tweet?text='+encodeURIComponent(imageDesc)+'&url='+encodeURIComponent(imageSrc),'sharer','toolbar=0,status=0,width=626,height=436');
 			removeClass(document.getElementById('mediaswipe-share-nav'),'on');
+
 			return false;
 		});
 		
@@ -1218,6 +1647,7 @@ var MediaSwipe = (function() {
 			var imageDesc = gallery[ currentIndex ].caption || "";
 			window.open('http://www.pinterest.com/pin/create/button/?url='+encodeURIComponent(imageSrc)+'&description='+encodeURIComponent(imageDesc),'sharer','toolbar=0,status=0,width=626,height=436');
 			removeClass(document.getElementById('mediaswipe-share-nav'),'on');
+
 			return false;
 		});
 	
@@ -1260,16 +1690,16 @@ var MediaSwipe = (function() {
 		};
 	
 		// Window resize event
-		window.onresize = function() {
-			doResize();
-		};
+		window.addEventListener('resize', function() {
+            doResize();
+        });	
 	};
-	
+
 	/*
 		doResize
 		-------------------------------------------------------------------------
 		Resizes the viewport on window.onresize and calls any other onresize 
-		events that were already instantiated.
+		events.
 		-------------------------------------------------------------------------
 	*/
 	var doResize = function() {
@@ -1282,12 +1712,14 @@ var MediaSwipe = (function() {
 			var galleryIndexes = [ currentIndex, previousIndex, nextIndex ];
 		
 			for ( var i = 0; i < galleryIndexes.length; i++ ) {
-				fitMedia( gallery[galleryIndexes[i]] );
+				fitMedia( gallery[galleryIndexes[i]] );				
 				if ( gallery.length < 2 ) break;
 			}
-		}
-		if ( typeof oldResizeFunc === 'function' ) {
-			oldResizeFunc();
+
+			// Force an interactive site plan to resize...
+			if ( gallery[currentIndex].type === 'siteplan' && typeof window.toll.sitePlan !== 'undefined' ) {
+				insertMedia(gallery[currentIndex]);
+			}
 		}
 	};
 	
@@ -1310,7 +1742,8 @@ var MediaSwipe = (function() {
 		-------------------------------------------------------------------------
 	*/
 	var doMouseDown = function(e) {
-		if ( isActive ) {
+		var withinBounds = withinImageBounds(e);
+		if ( isActive && ((gallery[ currentIndex ].disableSwipe === false && withinBounds) || (!withinBounds)) ) {
 			getEvent(e, pointerHandler.start);
 			pointerHandler.mouseDown = true;
 		}
@@ -1323,7 +1756,8 @@ var MediaSwipe = (function() {
 		-------------------------------------------------------------------------
 	*/
 	var doMouseUp = function(e) {
-		if ( isActive ) {
+		var withinBounds = withinImageBounds(e);
+		if ( isActive && ((gallery[ currentIndex ].disableSwipe === false && withinBounds) || (!withinBounds) || (withinBounds && pointerHandler.mouseDown)) ) {
 			pointerHandler.mouseDown = false;
 			getEvent(e, pointerHandler.end);
 			
@@ -1362,7 +1796,7 @@ var MediaSwipe = (function() {
 				// Release after panning
 				pointerHandler.panning = false;
 				removeClass($mediaSwipe,'ms-grabbing');
-				addClass($mediaSwipe,'ms-zoom-out');
+				addClass($mediaSwipe,'ms-zoom-inom-out');
 				
 				// A hard panning motion is a swipe motion
 				if ( Math.abs(pointerHandler.vX) > 25 && gallery.length > 1 ) {
@@ -1415,8 +1849,6 @@ var MediaSwipe = (function() {
 					});
 				}
 				
-				
-				
 				gallery[currentIndex].lastVirtualXOffset = gallery[currentIndex].virtualXOffset;
 				gallery[currentIndex].lastVirtualYOffset = gallery[currentIndex].virtualYOffset;
 			} else {
@@ -1441,6 +1873,10 @@ var MediaSwipe = (function() {
 					// Disable the touchpad...
 					addClass($mediaSwipe,'disable-touchpad');
 					gallery[ currentIndex ].youTubeObject.playVideo();
+
+					if ( typeof dataLayer !== 'undefined' && typeof dataLayer.push !== 'undefined' && typeof gallery[currentIndex].eventName !== 'undefined' && typeof gallery[currentIndex].eventName !== '' ) {
+						dataLayer.push({'event':gallery[currentIndex].eventName});
+					}
 				} 
 				
 				// Clicked to zoom-in
@@ -1491,7 +1927,9 @@ var MediaSwipe = (function() {
 		-------------------------------------------------------------------------
 	*/
 	var doMouseMove = function(e) {
-		if ( isActive ) {
+		var withinBounds = withinImageBounds(e);
+
+		if ( isActive && ((gallery[ currentIndex ].disableSwipe === false && withinBounds) || (!withinBounds) || (withinBounds && pointerHandler.mouseDown)) ) {
 			if ( pointerHandler.mouseDown ) {
 				var mDistance = Math.sqrt(Math.pow(e.clientY-pointerHandler.start.y,2)+Math.pow(e.clientX-pointerHandler.start.x,2));
 				
@@ -1574,6 +2012,14 @@ var MediaSwipe = (function() {
 	*/
 	var withinImageBounds = function(e) {
 		var mousePos = {x:0,y:0,time:0};
+
+		// FireFox Bug - mouse positions return '0' on option clicks
+		// If the target is an option, we have to assume the user is
+		// within the mediaswipe frame
+		if ( e.target.tagName.toUpperCase() == "OPTION" || e.target.tagName.toUpperCase() == "SELECT" ) {
+			return true;
+		}
+
 		getEvent(e,mousePos);
 		if ( 
 			mousePos.x >= gallery[ currentIndex ].virtualXPos + gallery[ currentIndex ].virtualXOffset &&
@@ -1637,9 +2083,13 @@ var MediaSwipe = (function() {
 					animator.animations[i].yStart = false;
 					animator.animations[i].yEnd = false;
 				}
+				if ( typeof animator.animations[i].opacityStart === 'undefined' ) {
+					animator.animations[i].opacityStart = false;
+					animator.animations[i].opacityEnd = false;
+				}
 				
 				var animationProgress = animator.animations[i].deltaTime / animator.animations[i].time;
-				var deltaScale, deltaX, deltaY;
+				var deltaScale, deltaX, deltaY, deltaOpacity;
 				
 				if ( animator.animations[i].deltaTime > animator.animations[i].time ) {
 					animator.animations[i].animating = false;
@@ -1653,6 +2103,9 @@ var MediaSwipe = (function() {
 					deltaY = ( animator.animations[i].yStart !== false ) 
 								?  	animator.animations[i].yEnd
 								:	false;	
+					deltaOpacity = ( animator.animations[i].opacityStart !== false ) 
+								?  	animator.animations[i].opacityEnd
+								:	false;			
 				} else {
 					deltaScale = ( animator.animations[i].scaleStart !== false )
 								?  	easeOut( animator.animations[i].deltaTime, animator.animations[i].scaleStart, (animator.animations[i].scaleEnd - animator.animations[i].scaleStart), animator.animations[i].time)
@@ -1663,9 +2116,12 @@ var MediaSwipe = (function() {
 					deltaY = ( animator.animations[i].yStart !== false ) 
 								?  	easeOut( animator.animations[i].deltaTime, animator.animations[i].yStart, (animator.animations[i].yEnd - animator.animations[i].yStart), animator.animations[i].time)
 								:	false;	
+					deltaOpacity = ( animator.animations[i].opacityStart !== false ) 
+								?  	easeOut( animator.animations[i].deltaTime, animator.animations[i].opacityStart, (animator.animations[i].opacityEnd - animator.animations[i].opacityStart), animator.animations[i].time)
+								:	false;	
 				}
 				
-				transformMedia( animator.animations[i].domObject, deltaScale, deltaX, deltaY );
+				transformMedia( animator.animations[i].domObject, deltaScale, deltaX, deltaY, deltaOpacity );
 				
 				if ( animator.animations[i].deltaTime > animator.animations[i].time && typeof animator.animations[i].callback !== 'undefined' ) {
 					animator.animations[i].callback();
@@ -1716,8 +2172,96 @@ var MediaSwipe = (function() {
 		return -c * t*(t-2) + b;
 	};
 	
-	return { init : init, youTubeAPIReady:youTubeAPIReady };
+	return { init : init, youTubeAPIReady : youTubeAPIReady, open : open, close : close };
 	
 })();
-MediaSwipe.init();
-window.onYouTubeIframeAPIReady=function(){MediaSwipe.youTubeAPIReady();};
+
+(function(funcName, baseObj) {
+    // The public function name defaults to window.docReady
+    // but you can pass in your own object and own function name and those will be used
+    // if you want to put them in a different namespace
+    funcName = funcName || "docReady";
+    baseObj = baseObj || window;
+    var readyList = [];
+    var readyFired = false;
+    var readyEventHandlersInstalled = false;
+
+    // call this when the document is ready
+    // this function protects itself against being called more than once
+    function ready() {
+        if (!readyFired) {
+            // this must be set to true before we start calling callbacks
+            readyFired = true;
+            for (var i = 0; i < readyList.length; i++) {
+                // if a callback here happens to add new ready handlers,
+                // the docReady() function will see that it already fired
+                // and will schedule the callback to run right after
+                // this event loop finishes so all handlers will still execute
+                // in order and no new ones will be added to the readyList
+                // while we are processing the list
+                readyList[i].fn.call(window, readyList[i].ctx);
+            }
+            // allow any closures held by these functions to free
+            readyList = [];
+        }
+    }
+
+    function readyStateChange() {
+        if ( document.readyState === "complete" ) {
+            ready();
+        }
+    }
+
+    // This is the one public interface
+    // docReady(fn, context);
+    // the context argument is optional - if present, it will be passed
+    // as an argument to the callback
+    baseObj[funcName] = function(callback, context) {
+        if (typeof callback !== "function") {
+            throw new TypeError("callback for docReady(fn) must be a function");
+        }
+        // if ready has already fired, then just schedule the callback
+        // to fire asynchronously, but right away
+        if (readyFired) {
+            setTimeout(function() {callback(context);}, 1);
+            return;
+        } else {
+            // add the function and context to the list
+            readyList.push({fn: callback, ctx: context});
+        }
+        // if document already ready to go, schedule the ready function to run
+        if (document.readyState === "complete") {
+            setTimeout(ready, 1);
+        } else if (!readyEventHandlersInstalled) {
+            // otherwise if we don't have event handlers installed, install them
+            if (document.addEventListener) {
+                // first choice is DOMContentLoaded event
+                document.addEventListener("DOMContentLoaded", ready, false);
+                // backup is window load event
+                window.addEventListener("load", ready, false);
+            } else {
+                // must be IE
+                document.attachEvent("onreadystatechange", readyStateChange);
+                window.attachEvent("onload", ready);
+            }
+            readyEventHandlersInstalled = true;
+        }
+    }
+})("docReady", window);
+
+var MSoldYouTubeIframeAPIReady;
+if ( typeof window.onYouTubeIframeAPIReady !== 'undefined' ) {
+   MSoldYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady;
+}
+
+window.onYouTubeIframeAPIReady = function() {
+	mediaswipe.youTubeAPIReady();
+	if ( typeof MSoldYouTubeIframeAPIReady === 'function' ) {
+     	MSoldYouTubeIframeAPIReady();
+   	}
+};
+
+docReady(function() {
+	mediaswipe.init();
+});
+
